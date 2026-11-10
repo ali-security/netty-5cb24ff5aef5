@@ -1195,6 +1195,13 @@
               <differences>
                 <item>
                   <ignore>true</ignore>
+                  <code>java.annotation.added</code>
+                  <old>method void io.netty.handler.codec.spdy.SpdyHttpDecoder::channelInactive(io.netty.channel.ChannelHandlerContext) throws java.lang.Exception</old>
+                  <new>method void io.netty.channel.ChannelInboundHandlerAdapter::channelInactive(io.netty.channel.ChannelHandlerContext) throws java.lang.Exception @ io.netty.handler.codec.spdy.SpdyHttpDecoder</new>
+                  <justification>SpdyHttpDecoder moved its cleanup from channelInactive to handlerRemoved (security fix).</justification>
+                </item>
+                <item>
+                  <ignore>true</ignore>
                   <code>java.missing.oldClass</code> <!-- Missing in prior Netty versions -->
                   <old>missing-class org.slf4j.Logger</old>
                   <new>missing-class org.slf4j.Logger</new>
