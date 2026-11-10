@@ -15,14 +15,345 @@
  */
 package io.netty.handler.codec.http;
 
+import io.netty.buffer.Unpooled;
 import io.netty.util.AsciiString;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Random;
 
 import static io.netty.handler.codec.http.HttpHeadersTestUtils.of;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class DefaultHttpRequestTest {
+    public static List<String> invalidUris() {
+        return Arrays.asList(
+                "http://localhost/\r\n",
+                "/r\r\n?q=1",
+                "http://localhost/\r\n?q=1",
+                "/r\r\n/?q=1",
+                "http://localhost/\r\n/?q=1",
+                "/r\r\n",
+                "http://localhost/ HTTP/1.1\r\n\r\nPOST /p HTTP/1.1\r\n\r\n",
+                "/r HTTP/1.1\r\n\r\nPOST /p HTTP/1.1\r\n\r\n",
+                "/ path",
+                "/path ",
+                " /path",
+                "http://localhost/ ",
+                " http://localhost/",
+                "http://local host/"
+        );
+    }
+
+    public static List<String> invalidMethods() {
+        return Arrays.asList(
+                "GET ",
+                " GET",
+                "G ET",
+                " GET ",
+                "GET\r",
+                "GET\n",
+                "GET\r\n",
+                "GE\rT",
+                "GE\nT",
+                "GE\r\nT",
+                "\rGET",
+                "\nGET",
+                "\r\nGET",
+                " \r\nGET",
+                "\r \nGET",
+                "\r\n GET",
+                "\r\nGET ",
+                "\nGET ",
+                "\rGET ",
+                "\r GET",
+                " \rGET",
+                "\nGET ",
+                "\n GET",
+                " \nGET",
+                "GET \n",
+                "GET \r",
+                " GET\r",
+                " GET\r",
+                "GET \n",
+                " GET\n",
+                " GET\n",
+                "GE\nT ",
+                "GE\rT ",
+                " GE\rT",
+                " GE\rT",
+                "GE\nT ",
+                " GE\nT",
+                " GE\nT"
+        );
+    }
+
+    public static List<String> validUris() {
+        final String pdigit = "123456789";
+        final String digit = '0' + pdigit;
+        final String digitcolon = digit + ':';
+        final String alpha = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        final String alphanum = alpha + digit;
+        final String alphanumdot = alphanum + '.';
+        final String unreserved = alphanumdot + "-_~";
+        final String subdelims = "$&%=!+,;'()";
+        final String userinfochars = unreserved + subdelims + ':';
+        final String pathchars = unreserved + '/';
+        final String querychars = pathchars + subdelims + '?';
+        Random seeds = new Random();
+        List<String> uris = new ArrayList<String>(1000);
+        for (int n = 0; n < 1000; n++) {
+            Random rng = new Random(seeds.nextLong());
+            String start;
+            String path;
+            String query;
+            String fragment;
+            if (rng.nextBoolean()) {
+                String scheme = rng.nextBoolean() ? "http://" : "HTTP://";
+                String userinfo = rng.nextBoolean() ? "" : pick(rng, userinfochars, 1, 8) + '@';
+                String host;
+                String port;
+                switch (rng.nextInt(3)) {
+                    case 0:
+                        host = pick(rng, alphanum, 1, 1) + pick(rng, alphanumdot, 1, 5);
+                        break;
+                    case 1:
+                        host = pick(rng, pdigit, 1, 1) + pick(rng, digit, 0, 2) + '.' +
+                                pick(rng, pdigit, 1, 1) + pick(rng, digit, 0, 2) + '.' +
+                                pick(rng, pdigit, 1, 1) + pick(rng, digit, 0, 2) + '.' +
+                                pick(rng, pdigit, 1, 1) + pick(rng, digit, 0, 2);
+                        break;
+                    default:
+                        host = '[' + pick(rng, digitcolon, 1, 8) + ']';
+                        break;
+                }
+                if (rng.nextBoolean()) {
+                    port = ':' + pick(rng, pdigit, 1, 1) + pick(rng, digit, 0, 4);
+                } else {
+                    port = "";
+                }
+                start = scheme + userinfo + host + port;
+            } else {
+                start = "";
+            }
+            path = '/' + pick(rng, pathchars, 0, 8);
+            if (rng.nextBoolean()) {
+                query = '?' + pick(rng, querychars, 0, 8);
+            } else {
+                query = "";
+            }
+            if (rng.nextBoolean()) {
+                fragment = '#' + pick(rng, querychars, 0, 8);
+            } else {
+                fragment = "";
+            }
+            uris.add(start + path + query + fragment);
+        }
+        return uris;
+    }
+
+    public static List<String> validMethods() {
+        return Arrays.asList("GET",
+                "POST",
+                "PUT",
+                "HEAD",
+                "DELETE",
+                "OPTIONS",
+                "CONNECT",
+                "TRACE",
+                "PATCH",
+                "QUERY");
+    }
+
+    private static String pick(Random rng, String cs, int lowerBound, int upperBound) {
+        int length = lowerBound + rng.nextInt(upperBound - lowerBound + 1);
+        StringBuilder sb = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
+            sb.append(cs.charAt(rng.nextInt(cs.length())));
+        }
+        return sb.toString();
+    }
+
+    private static HttpMethod customMethod(final String method) {
+        return new HttpMethod("GET") {
+            @Override
+            public AsciiString asciiName() {
+                return new AsciiString(method);
+            }
+        };
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidUris")
+    void constructorMustRejectIllegalUrisByDefault(final String uri) {
+        assertThrows(IllegalArgumentException.class, new Executable() {
+            @Override
+            public void execute() throws Throwable {
+                new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, uri);
+            }
+        });
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidUris")
+    void constructorWithValidateHeadersMustRejectIllegalUris(final String uri) {
+        assertThrows(IllegalArgumentException.class, new Executable() {
+            @Override
+            public void execute() throws Throwable {
+                new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, uri, false);
+            }
+        });
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidUris")
+    void constructorWithHeadersMustRejectIllegalUris(final String uri) {
+        assertThrows(IllegalArgumentException.class, new Executable() {
+            @Override
+            public void execute() throws Throwable {
+                new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, uri, new DefaultHttpHeaders());
+            }
+        });
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidUris")
+    void fullRequestConstructorsMustRejectIllegalUris(final String uri) {
+        assertThrows(IllegalArgumentException.class, new Executable() {
+            @Override
+            public void execute() throws Throwable {
+                new DefaultFullHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, uri);
+            }
+        });
+        assertThrows(IllegalArgumentException.class, new Executable() {
+            @Override
+            public void execute() throws Throwable {
+                new DefaultFullHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, uri, false);
+            }
+        });
+        assertThrows(IllegalArgumentException.class, new Executable() {
+            @Override
+            public void execute() throws Throwable {
+                new DefaultFullHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, uri, Unpooled.EMPTY_BUFFER,
+                        new DefaultHttpHeaders(), new DefaultHttpHeaders());
+            }
+        });
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidUris")
+    void setUriMustRejectIllegalUrisByDefault(final String uri) {
+        final DefaultHttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, "/");
+        assertThrows(IllegalArgumentException.class, new Executable() {
+            @Override
+            public void execute() throws Throwable {
+                request.setUri(uri);
+            }
+        });
+        assertEquals("/", request.uri());
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidUris")
+    void setUriOnFullRequestMustRejectIllegalUrisByDefault(final String uri) {
+        final DefaultFullHttpRequest request = new DefaultFullHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, "/");
+        try {
+            assertThrows(IllegalArgumentException.class, new Executable() {
+                @Override
+                public void execute() throws Throwable {
+                    request.setUri(uri);
+                }
+            });
+            assertEquals("/", request.uri());
+        } finally {
+            request.release();
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidUris")
+    void requestLineValidationCanBeDisabled(String uri) {
+        DefaultHttpRequest request = new DefaultHttpRequest(
+                HttpVersion.HTTP_1_1, HttpMethod.GET, uri, new DefaultHttpHeaders(), false);
+        assertEquals(uri, request.uri());
+        request.setUri(uri);
+        assertEquals(uri, request.uri());
+    }
+
+    @ParameterizedTest
+    @MethodSource("validUris")
+    void constructorMustAcceptValidUris(String uri) {
+        new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, uri);
+    }
+
+    @ParameterizedTest
+    @MethodSource("validUris")
+    void setUriMustAcceptValidUris(String uri) {
+        DefaultHttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, "/");
+        request.setUri(uri);
+        assertEquals(uri, request.uri());
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidMethods")
+    void constructorMustRejectIllegalHttpMethodByDefault(final String method) {
+        assertThrows(IllegalArgumentException.class, new Executable() {
+            @Override
+            public void execute() throws Throwable {
+                new DefaultHttpRequest(HttpVersion.HTTP_1_0, customMethod(method), "/");
+            }
+        });
+        assertThrows(IllegalArgumentException.class, new Executable() {
+            @Override
+            public void execute() throws Throwable {
+                new DefaultHttpRequest(HttpVersion.HTTP_1_0, customMethod(method), "/", new DefaultHttpHeaders());
+            }
+        });
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidMethods")
+    void setMethodMustRejectIllegalHttpMethodByDefault(final String method) {
+        final DefaultFullHttpRequest request = new DefaultFullHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, "/");
+        try {
+            assertThrows(IllegalArgumentException.class, new Executable() {
+                @Override
+                public void execute() throws Throwable {
+                    request.setMethod(customMethod(method));
+                }
+            });
+            assertSame(HttpMethod.GET, request.method());
+        } finally {
+            request.release();
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("validMethods")
+    void constructorMustAcceptAllHttpMethods(String method) {
+        new DefaultHttpRequest(HttpVersion.HTTP_1_0, customMethod(method), "/");
+
+        new DefaultHttpRequest(HttpVersion.HTTP_1_0, new HttpMethod(method), "/");
+    }
+
+    @ParameterizedTest
+    @MethodSource("validMethods")
+    void setMethodMustAcceptAllHttpMethods(String method) {
+        DefaultHttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, "/");
+
+        request.setMethod(customMethod(method));
+
+        request.setMethod(new HttpMethod(method));
+    }
 
     @Test
     public void testHeaderRemoval() {

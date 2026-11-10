@@ -19,6 +19,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.DecoderResult;
+import io.netty.util.AsciiString;
 import io.netty.util.CharsetUtil;
 import io.netty.util.IllegalReferenceCountException;
 import org.junit.jupiter.api.Test;
@@ -39,8 +40,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- */
 public class HttpRequestEncoderTest {
 
     @SuppressWarnings("deprecation")
@@ -310,6 +309,58 @@ public class HttpRequestEncoderTest {
         assertTrue(head.release());
         assertNull(channel.readOutbound());
         assertFalse(channel.finish());
+    }
+
+    @Test
+    public void testCrlfInjectionInRequestLineCannotSmuggleRequest() {
+        final String smuggledUri = "/r HTTP/1.1\r\nHost: localhost\r\n\r\nPOST /admin HTTP/1.1\r\n\r\n";
+        final HttpMethod smuggledMethod = new HttpMethod("GET") {
+            @Override
+            public AsciiString asciiName() {
+                return new AsciiString("GET /admin HTTP/1.1\r\n\r\nGET");
+            }
+        };
+
+        assertThrows(IllegalArgumentException.class, new Executable() {
+            @Override
+            public void execute() {
+                new DefaultFullHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, smuggledUri);
+            }
+        });
+        assertThrows(IllegalArgumentException.class, new Executable() {
+            @Override
+            public void execute() {
+                new DefaultFullHttpRequest(HttpVersion.HTTP_1_1, smuggledMethod, "/r");
+            }
+        });
+
+        final FullHttpRequest request = new DefaultFullHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, "/r");
+        assertThrows(IllegalArgumentException.class, new Executable() {
+            @Override
+            public void execute() {
+                request.setUri(smuggledUri);
+            }
+        });
+        assertThrows(IllegalArgumentException.class, new Executable() {
+            @Override
+            public void execute() {
+                request.setMethod(smuggledMethod);
+            }
+        });
+
+        EmbeddedChannel channel = new EmbeddedChannel(new HttpRequestEncoder());
+        assertTrue(channel.writeOutbound(request));
+        StringBuilder encoded = new StringBuilder();
+        for (;;) {
+            ByteBuf buf = channel.readOutbound();
+            if (buf == null) {
+                break;
+            }
+            encoded.append(buf.toString(CharsetUtil.US_ASCII));
+            buf.release();
+        }
+        assertFalse(channel.finish());
+        assertEquals("GET /r HTTP/1.1\r\n\r\n", encoded.toString());
     }
 
     private void testEmptyContents(boolean chunked, boolean trailers) throws Exception {

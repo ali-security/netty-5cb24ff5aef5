@@ -19,6 +19,8 @@ import io.netty.util.CharsetUtil;
 import io.netty.util.ReferenceCountUtil;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -51,7 +53,8 @@ public class HttpUtilTest {
         assertFalse(HttpUtil.isOriginForm(URI.create("*")));
     }
 
-    @Test public void testRecognizesAsteriskForm() {
+    @Test
+    public void testRecognizesAsteriskForm() {
         // Asterisk form: https://tools.ietf.org/html/rfc7230#section-5.3.4
         assertTrue(HttpUtil.isAsteriskForm(URI.create("*")));
         // Origin form: https://tools.ietf.org/html/rfc7230#section-5.3.1
@@ -60,6 +63,41 @@ public class HttpUtilTest {
         assertFalse(HttpUtil.isAsteriskForm(URI.create("http://www.example.org/pub/WWW/TheProject.html")));
         // Authority form: https://tools.ietf.org/html/rfc7230#section-5.3.3
         assertFalse(HttpUtil.isAsteriskForm(URI.create("www.example.com:80")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "http://localhost/\r\n",
+            "/r\r\n?q=1",
+            "http://localhost/\r\n?q=1",
+            "/r\r\n/?q=1",
+            "http://localhost/\r\n/?q=1",
+            "/r\r\n",
+            "http://localhost/ HTTP/1.1\r\n\r\nPOST /p HTTP/1.1\r\n\r\n",
+            "/r HTTP/1.1\r\n\r\nPOST /p HTTP/1.1\r\n\r\n",
+            "GET ",
+            " GET",
+            "HTTP/ 1.1",
+            "HTTP/\r0.9",
+            "HTTP/\n1.1",
+    })
+    public void requestLineTokenValidationMustRejectInvalidTokens(String token) throws Exception {
+        assertFalse(HttpUtil.isEncodingSafeStartLineToken(token));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "GET",
+            "JSON",
+            "MKCOL",
+            "M-SEARCH",
+            "HTTP/1.1",
+            "/path?q=1#frag",
+            "http://localhost:8080/JMX`~@[]{}|^\\",
+            "/é中ĊčĠ",
+    })
+    public void requestLineTokenValidationMustAcceptValidTokens(String token) throws Exception {
+        assertTrue(HttpUtil.isEncodingSafeStartLineToken(token));
     }
 
     @Test
