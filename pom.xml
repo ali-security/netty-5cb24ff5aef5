@@ -1273,6 +1273,12 @@
                   <new>method io.netty.channel.unix.DomainSocketAddress io.netty.channel.unix.Socket::remoteDomainSocketAddress()</new>
                   <justification>Acceptable incompatibility for required change</justification>
                 </item>
+                <item>
+                  <ignore>true</ignore>
+                  <code>java.method.finalMethodAddedToNonFinalClass</code>
+                  <new>method void io.netty.handler.codec.http.HttpObjectDecoder::clearContentLength()</new>
+                  <justification>Acceptable incompatibility for required change (RFC 9112 Transfer-Encoding handling)</justification>
+                </item>
               </differences>
             </revapi.differences>
           </analysisConfiguration>
