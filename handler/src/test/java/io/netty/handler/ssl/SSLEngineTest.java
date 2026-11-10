@@ -50,6 +50,7 @@ import io.netty.util.internal.PlatformDependent;
 import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.SystemPropertyUtil;
 import org.conscrypt.OpenSSLProvider;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -4229,6 +4230,7 @@ public abstract class SSLEngineTest {
                 arrayContains(serverProtocols, SslProtocols.TLS_v1_3));
     }
 
+    @Disabled("client cert in rsaValidation-user-certs.p12 expired 2023-08-29 (CERTIFICATE_EXPIRED)")
     @MethodSource("newTestParams")
     @ParameterizedTest
     public void testRSASSAPSS(SSLEngineTestParam param) throws Exception {

@@ -229,6 +229,7 @@ public class JdkOpenSslEngineInteroptTest extends SSLEngineTest {
         super.testSessionCacheSize(param);
     }
 
+    @Disabled("client cert in rsaValidation-user-certs.p12 expired 2023-08-29 (CERTIFICATE_EXPIRED)")
     @MethodSource("newTestParams")
     @ParameterizedTest
     @Override
